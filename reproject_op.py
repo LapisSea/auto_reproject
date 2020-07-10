@@ -7,23 +7,18 @@ class AMR_OT_Reproject(bpy.types.Operator):
     bl_idname = "amr.reproject"
     bl_label = "Reproject"
     bl_description = "Reproject this mesh to the targets"
-    bl_options = {"REGISTER", 'UNDO'}
-    
-    disable_preserve_old: BoolProperty()
+    bl_options = {"REGISTER", 'UNDO', "INTERNAL"}
     
     @classmethod
     def poll(self, context):
-        obj = utils.get_active_obj(context)
+        obj, config = utils.get_context_common(context)
         if obj == None:
             return False
-
-        config = obj.amr_settings
         
         return sum(1 for t in config.targets if t.obj!=None) > 0 and len(scan_step_problems(config.steps))==0
 
     def execute(self, context):
-        obj = utils.get_active_obj(context)
-        config = obj.amr_settings
+        obj, config = utils.get_context_common(context)
         
         print("Projecting...")
         
@@ -73,7 +68,11 @@ class AMR_OT_Reproject(bpy.types.Operator):
                 bpy.ops.object.multires_higher_levels_delete(modifier=multires.name)
             len(config.steps_post)>0
             
-            force=self.disable_preserve_old or len(scan_preserve_problems(config))>0
+            disable_preserve_old=config.force_change
+            if config.force_change:
+                config.force_change=False
+            
+            force=disable_preserve_old or len(scan_preserve_problems(config))>0
             
             if config.preserve_old and not force:
                 level=config.repeater.choose_level(obj, config, multires)
@@ -139,6 +138,10 @@ class AMR_OT_Reproject(bpy.types.Operator):
                         except Exception as e:
                             mods.remove(proj)
                             print(e)
+                        continue
+                    
+                    if step.typ=="FIX":
+                        print("SPIKE REMOVAL NOT IMPLEMENTED")
                         continue
                     
                     raise Exception("Unimplemneted action: "+step.typ)

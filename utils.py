@@ -1,5 +1,7 @@
 
 def get_active_obj(context):
+    if not hasattr(context, "active_object"):
+        return None
     
     obj=context.active_object
     
@@ -8,3 +10,7 @@ def get_active_obj(context):
         return None
     
     return obj
+
+def get_context_common(context):
+    obj=get_active_obj(context)
+    return (obj, obj.amr_settings if obj!=None else None)

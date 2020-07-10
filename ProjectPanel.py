@@ -13,7 +13,7 @@ class AMR_PT_Panel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         
-        obj = utils.get_active_obj(context)
+        obj, config = utils.get_context_common(context)
         
         if obj == None:
             layout = layout.box()
@@ -23,8 +23,6 @@ class AMR_PT_Panel(bpy.types.Panel):
             return
         
         layout.label(text="Auto Reproject settings")
-        
-        config = obj.amr_settings
         
         
         
@@ -86,13 +84,14 @@ class AMR_PT_Panel(bpy.types.Panel):
         
         problems=scan_preserve_problems(config)
         
-        ro = layout.row()
-        ro.enabled=len(problems)==0
-        
-        ro.prop(config, "preserve_old")
-        for problem in problems:
-            layout.label(text=problem, icon="ERROR")
-        
+        if len(problems)>0:
+            ro = layout.box()
+            
+            ro.prop(config, "preserve_old")
+            for problem in problems:
+                ro.label(text=problem, icon="ERROR")
+        else:
+            layout.prop(config, "preserve_old")
         
         col = layout.row(align=True)
         col.prop(config, "auto_update", text="", icon="SNAP_ON" if config.auto_update else "SNAP_OFF")

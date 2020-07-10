@@ -6,11 +6,9 @@ from .depsgraph import onDepsgraph
 
 
 def update(scene=None):
-    obj = utils.get_active_obj(bpy.context)
+    obj, config = utils.get_context_common(bpy.context)
     if obj == None:
         return
-    
-    config = obj.amr_settings
     
     if not config.inited:
         config.inited=True
@@ -60,22 +58,24 @@ def update(scene=None):
 
 onDepsgraph(update)
 
-def _on_change(self, context, disable):
+def _on_change(self, context):
     update()
     
-    obj = utils.get_active_obj(context)
-    if not obj.amr_settings.auto_update:
+    obj, config = utils.get_context_common(context)
+    if not config.auto_update:
         return
     
     op=bpy.ops.amr.reproject
     if op.poll():
-        op(disable_preserve_old=disable)
+        op()
 
 def on_change(self, context):
-    _on_change(self,context, False)
+    _on_change(self,context)
 
 def on_change_force(self, context):
-    _on_change(self,context, True)
+    obj, config = utils.get_context_common(context)
+    config.force_change=True
+    _on_change(self,context)
 
 class ObjPtr(PropertyGroup):
     obj: PointerProperty(
@@ -117,9 +117,16 @@ def scan_step_problems(steps):
     return problems
 
 def scan_preserve_problems(config):
+    problems=[]
+    if not config.preserve_old:
+        return problems
+    
     if sum(1 for step in config.steps_post if step.typ!="NAN")>0:
-        return ["Preserve not compatabile with post steps"]
-    return []
+        problems.append("Preserve not compatabile with post steps")
+    elif config.force_change:
+        problems.append("Outdated data")
+    
+    return problems
 
 
 def display_SMO(self, layout):
@@ -128,10 +135,16 @@ def display_SMO(self, layout):
     lay.prop(self,"smo_iter")
     layout.prop(self,"pin_boundary")
 
+def display_PRO(self, layout):
+    layout.prop(self,"pro_distance")
+
+def display_FIX(self, layout):
+    layout.prop(self,"fix_tolerance")
+
 step_values={
     "SMO": display_SMO,
-    # "PRO": display_PRO,
-    # "ATT": display_ATT,
+    "PRO": display_PRO,
+    "FIX": display_FIX,
 }
 
 class Step(PropertyGroup):
@@ -141,12 +154,17 @@ class Step(PropertyGroup):
         ("PRO", "Project", "Project step"),
         ("ATT", "Attract", "Snap to closest point step"),
         ("SMO", "Smooth", "Smooth step"),
+        ("FIX", "Remove Spikes (SLOW)", "Smooth step"),
     ], default="NAN", update=on_change_force)
     
     smo_strength: FloatProperty(default=0.5, min=0,soft_max=1, description="Strength of smoothing", name="Strength", update=on_change_force)
     smo_iter: IntProperty(default=1, min=0, description="Number of how many times smoothing repeats", name="Repeats", update=on_change_force)
     
     pin_boundary: BoolProperty(default=False, name="Pin boundary", update=on_change_force)
+    
+    pro_distance: FloatProperty(default=0, min=0, step=0.03, unit="LENGTH", description="Maximum projection distance, 0 = no maximum (prevent spikes)", name="Max Distance", update=on_change_force)
+    
+    fix_tolerance: FloatProperty(default=0.1, subtype="FACTOR", min=0, max=1, step=0.05, description="Spike detection tolerance. (0 = the single most spiky vertex, 1 = everything is a spike)", name="Detection tolerance", update=on_change_force)
     
     def has_values(self):
         return self.typ in step_values
@@ -163,13 +181,13 @@ class RepeatMode(PropertyGroup):
         ("NUM", "Fixed number", "Repeat steps a fixed number of times"),
         ("VTC", "Polygon target", "Repeat steps until polygon count becomes more or eual than value"),
         ("CPY", "Polygon count copy", "Repeat steps until polygon count becomes more or eual to target polygon count times multiplier"),
-    ], default="NUM", update=on_change)
+    ], default="CPY", update=on_change)
     
     subdivision_levels: IntProperty(default=3, min=0, soft_max=6, max=255, name="Levels", update=on_change)
     
     polygon_target: IntProperty(default=10000, min=1, name="Min target count", update=on_change)
     
-    targert_multiplier: FloatProperty(default=0.9, min=0, soft_max=1, step=0.02, name="Multiplier", update=on_change)
+    targert_multiplier: FloatProperty(default=0.5, subtype="FACTOR", min=0, soft_max=1, name="Multiplier", update=on_change)
     
     def display_values(self, layout):
         layout.prop(self, {
@@ -225,12 +243,14 @@ class Config(PropertyGroup):
     subdivision_type: EnumProperty(items=[
         ("CATMULL_CLARK", "Smooth", "Use smooth subdivisons"),
         ("SIMPLE", "Simple", "Use flat subdivisons"),
-    ], default="CATMULL_CLARK", update=on_change)
+    ], default="CATMULL_CLARK", update=on_change_force)
     
     preserve_old: BoolProperty(default=True, name="Preserve old", description="Do not delete existing multiresolution data (repoject from base every time)")
     
     auto_update: BoolProperty(default=True, name="Auto Update")
     
     inited: BoolProperty(default=False)
+    
+    force_change: BoolProperty(default=False)
     
     repeater: PointerProperty(type=RepeatMode)
