@@ -155,64 +155,63 @@ class Step(PropertyGroup):
         step_values[self.typ](self, layout)
         
 
-def get_object_vertex_count(obj):
-    return len(obj.evaluated_get(depsgraph=bpy.context.evaluated_depsgraph_get()).data.vertices)
+def get_object_polygon_count(obj):
+    return len(obj.evaluated_get(depsgraph=bpy.context.evaluated_depsgraph_get()).data.polygons)
 
 class RepeatMode(PropertyGroup):
     typ: EnumProperty(items=[
         ("NUM", "Fixed number", "Repeat steps a fixed number of times"),
-        ("VTC", "Vertex target", "Repeat steps until vertex count becomes more or eual than value"),
-        ("CPY", "Vertex count copy", "Repeat steps until vertex count becomes more or eual to target vertex count times multiplier"),
+        ("VTC", "Polygon target", "Repeat steps until polygon count becomes more or eual than value"),
+        ("CPY", "Polygon count copy", "Repeat steps until polygon count becomes more or eual to target polygon count times multiplier"),
     ], default="NUM", update=on_change)
     
     subdivision_levels: IntProperty(default=3, min=0, soft_max=6, max=255, name="Levels", update=on_change)
     
-    vertex_target: IntProperty(default=10000, min=1, name="Target count", update=on_change)
+    polygon_target: IntProperty(default=10000, min=1, name="Min target count", update=on_change)
     
-    targert_multiplier: FloatProperty(default=0.9, min=0, soft_max=1, name="Multiplier", update=on_change)
+    targert_multiplier: FloatProperty(default=0.9, min=0, soft_max=1, step=0.02, name="Multiplier", update=on_change)
     
     def display_values(self, layout):
         layout.prop(self, {
             "NUM": "subdivision_levels",
-            "VTC": "vertex_target",
+            "VTC": "polygon_target",
             "CPY": "targert_multiplier",
         }[self.typ])
     
-    def calc_target_vertex_sum(self, config):
-       return sum( get_object_vertex_count(ptr.obj) for ptr in config.targets if ptr.obj!=None)
+    def calc_target_polygon_sum(self, config):
+       return sum( get_object_polygon_count(ptr.obj) for ptr in config.targets if ptr.obj!=None)
     
     def should_repeat(self, obj, config, multires):
         
-        get_object_vertex_count(obj)
+        get_object_polygon_count(obj)
         
         def count_greater(target):
-            count= get_object_vertex_count(obj)
-            return target>=count
+            count= get_object_polygon_count(obj)
+            return target>count
         
         return {
             "NUM": (lambda: multires.levels<self.subdivision_levels),
-            "VTC": (lambda: count_greater(self.vertex_target)),
-            "CPY": (lambda: count_greater(self.calc_target_vertex_sum(config)*self.targert_multiplier)),
+            "VTC": (lambda: count_greater(self.polygon_target)),
+            "CPY": (lambda: count_greater(self.calc_target_polygon_sum(config)*self.targert_multiplier)),
         }[self.typ]()
     
     def choose_level(self, obj, config, multires):
         
         def downsample(target):
-            print(target)
             levels=multires.total_levels
             
-            count=get_object_vertex_count(obj)
+            count=get_object_polygon_count(obj)
             
-            while count/3.2>=target and levels>0:
-                count/=3.2
+            while count/4>=target and levels>0:
+                count/=4
                 levels-=1
             
             return levels
         
         return {
             "NUM": (lambda: self.subdivision_levels),
-            "VTC": (lambda: downsample(self.vertex_target)),
-            "CPY": (lambda: downsample(self.calc_target_vertex_sum(config)*self.targert_multiplier)),
+            "VTC": (lambda: downsample(self.polygon_target)),
+            "CPY": (lambda: downsample(self.calc_target_polygon_sum(config)*self.targert_multiplier)),
         }[self.typ]()
 
 
