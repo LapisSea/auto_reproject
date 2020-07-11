@@ -161,6 +161,9 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     return
                 
                 if step.typ=="FIX":
+                    if step.smo_iter==0 or step.smo_strength==0:
+                        return
+                    
                     from . import spike_removal
                     
                     mesh=utils.get_evaluated_mesh(obj)
@@ -169,6 +172,8 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     
                     if len(spike_weight[0])==0:
                         return
+                        
+                    print("Applying smoothing to detected spikes")
                     
                     old_levels=multires[0].total_levels
                     

@@ -143,6 +143,7 @@ def display_FIX(self, layout):
     layout.prop(self,"fix_locality")
     layout.prop(self,"fix_debug")
     
+    layout.label(text="Spike smoothing:")
     lay=layout.row(align=True)
     lay.prop(self,"smo_strength")
     lay.prop(self,"smo_iter")

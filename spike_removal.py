@@ -28,8 +28,8 @@ def normalize(dataset):
     
     return [(avg_dist-min_val)/value_range for avg_dist in dataset]
 
-def compute_local_index(mesh, vertex_to_edge_index, vertex_index, locality):
-    edges=mesh.edges
+def compute_local_index(edge_data, vertex_index, locality):
+    vertex_to_edge_index, edge_lr=edge_data
     
     vertex_ids=set()
     vertex_ids.add(vertex_index)
@@ -45,14 +45,13 @@ def compute_local_index(mesh, vertex_to_edge_index, vertex_index, locality):
                     continue
                 index_set.add(edge_index)
                 
-                edge=edges[edge_index]
-                
                 def add(new_id):
                     if new_id!=vt_id and new_id:
                         ids.append(new_id)
                 
-                add(edge.vertices[0])
-                add(edge.vertices[1])
+                lr=edge_lr[edge_index]
+                add(lr[0])
+                add(lr[1])
         
         vertex_ids.update(ids)
     
@@ -61,23 +60,29 @@ def compute_local_index(mesh, vertex_to_edge_index, vertex_index, locality):
 
 def compute_vertex_to_edge_index(mesh):
     index=tuple([] for i in range(len(mesh.vertices)))
+    edge_lr=tuple([0,0] for i in range(len(mesh.edges)))
     
     for i, edge in enumerate(mesh.edges):
-        index[edge.vertices[0]].append(i)
-        index[edge.vertices[1]].append(i)
+        lr=edge_lr[i]
+        lr[0]=edge.vertices[0]
+        lr[1]=edge.vertices[1]
+        index[lr[0]].append(i)
+        index[lr[1]].append(i)
     
-    return index
+    return (index, edge_lr)
 
-def compute_avarage_vertex_edge_lengths_index_iter(mesh, vertex_to_edge_index):
-    verts, edges=mesh.vertices, mesh.edges
+def compute_avarage_vertex_edge_lengths_index_iter(mesh, edge_data):
+    vertex_to_edge_index, edge_lr=edge_data
+    
+    verts=mesh.vertices
     
     dataset=[0.0]*len(vertex_to_edge_index)
     
     for i, index in enumerate(vertex_to_edge_index):
         val_sum=0
         for edge_index in index:
-            edge=edges[edge_index]
-            val_sum+=(verts[edge.vertices[0]].co-verts[edge.vertices[1]].co).length
+            lr=edge_lr[edge_index]
+            val_sum+=(verts[lr[0]].co-verts[lr[1]].co).length
         
         dataset[i]=val_sum/len(index)
     
@@ -140,18 +145,27 @@ def analyse_mesh(mesh, locality, treshold):
             lock.release()
     
     if locality==0:
+        print("Computing global avarage edge lengths")
         dataset=compute_avarage_vertex_edge_lengths_self_acum(mesh)
         
         push_raw_dataset(dataset, lambda local_i: local_i, push_result)
     else:
-        print("Computing topology data walk")
-        vertex_to_edge_index=compute_vertex_to_edge_index(mesh)
+        print("Computing vertex to edge relations")
+        
+        edge_data=compute_vertex_to_edge_index(mesh)
+        vertex_to_edge_index, edge_lr=edge_data
         
         print("Computing avarage edge lengths")
-        global_dataset=compute_avarage_vertex_edge_lengths_index_iter(mesh, vertex_to_edge_index)
+        global_dataset=compute_avarage_vertex_edge_lengths_index_iter(mesh, edge_data)
         
         print("Computing standard derivation")
-        millis = [int(round(time.time() * 1000))]
+        
+        def get_ms(): return int(round(time.time() * 1000))
+        
+        millis = [get_ms()]
+        
+        start_tim = int(millis[0])
+        
         vt_len=len(vertex_to_edge_index)
         counter=[0]
         def increment():
@@ -159,18 +173,26 @@ def analyse_mesh(mesh, locality, treshold):
             try:
                 counter[0]+=1
                 val=counter[0]/vt_len
-                tim=int(round(time.time() * 1000))
-                if tim-millis[0]>1000:
+                tim=get_ms()
+                diff=tim-millis[0]
+                if diff>1000:
                     millis[0]=tim
-                    print(str(round(val*100,2))+"%")
+                    spent_time=tim-start_tim
+                    
+                    total_time=spent_time/val
+                    ms=int(total_time-spent_time)
+                    sec=int(ms/1000)
+                    ms-=sec*1000
+                    minute=int(sec/60)
+                    sec-=minute*60
+                    print(str(round(val*100,2))+"% remaining: "+str(minute)+":"+str(sec)+":"+str(ms))
             finally:
                 lock.release()
         
         def process(vertex_index):
             increment()
             
-            local_index=compute_local_index(mesh, vertex_to_edge_index, vertex_index, locality)
-            
+            local_index=compute_local_index(edge_data, vertex_index, locality)
             
             local_dataset=[global_dataset[index] for index in local_index]
             
@@ -186,7 +208,7 @@ def analyse_mesh(mesh, locality, treshold):
                 push_result((vertex_index, weight[0]))
             
         
-        thread_num=min(20, int(vt_len/100))
+        thread_num=min(10, int(vt_len/500))
         
         if thread_num<=1:
             for i in range(vt_len):
