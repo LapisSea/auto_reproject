@@ -1,3 +1,4 @@
+import bpy
 
 def get_active_obj(context):
     if not hasattr(context, "active_object"):
@@ -14,3 +15,6 @@ def get_active_obj(context):
 def get_context_common(context):
     obj=get_active_obj(context)
     return (obj, obj.amr_settings if obj!=None else None)
+
+def get_evaluated_mesh(obj):
+    return obj.evaluated_get(depsgraph=bpy.context.evaluated_depsgraph_get()).data

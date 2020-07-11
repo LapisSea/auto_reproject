@@ -27,7 +27,6 @@ bl_info = {
     "category": "Generic"
 }
 
-
 auto_load.init()
 
 

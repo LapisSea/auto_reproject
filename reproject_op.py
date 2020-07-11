@@ -3,6 +3,8 @@ from . import utils
 from .Config import (scan_step_problems,scan_preserve_problems)
 from .import_properties import *
 
+
+
 class AMR_OT_Reproject(bpy.types.Operator):
     bl_idname = "amr.reproject"
     bl_label = "Reproject"
@@ -18,7 +20,14 @@ class AMR_OT_Reproject(bpy.types.Operator):
         return sum(1 for t in config.targets if t.obj!=None) > 0 and len(scan_step_problems(config.steps))==0
 
     def execute(self, context):
+        
+        
         obj, config = utils.get_context_common(context)
+        
+        for o in bpy.data.objects:
+            if o.type!="EMPTY" or not o.name.startswith("_DEBUG"):
+                continue
+            bpy.data.objects.remove(o)
         
         print("Projecting...")
         
@@ -52,21 +61,25 @@ class AMR_OT_Reproject(bpy.types.Operator):
             return get_boundy()
         
         try:
+            bpy.ops.object.mode_set(mode='OBJECT')
             
             mods=obj.modifiers
             
-            multires=None
+            multires=[None]
+            
             for mod in mods:
                 if mod.type=="MULTIRES":
-                    multires=mod
+                    multires[0]=mod
                     break
-            if multires==None:
-                multires=mods.new("Multires", "MULTIRES")
+            if multires[0]==None:
+                multires[0]=mods.new("Multires", "MULTIRES")
             
+            def apply_modifier(name):
+                bpy.ops.object.modifier_apply(apply_as='DATA', modifier=name, report=False)
             
             def delete_higher():
-                bpy.ops.object.multires_higher_levels_delete(modifier=multires.name)
-            len(config.steps_post)>0
+                bpy.ops.object.multires_higher_levels_delete(modifier=multires[0].name)
+            
             
             disable_preserve_old=config.force_change
             if config.force_change:
@@ -75,84 +88,152 @@ class AMR_OT_Reproject(bpy.types.Operator):
             force=disable_preserve_old or len(scan_preserve_problems(config))>0
             
             if config.preserve_old and not force:
-                level=config.repeater.choose_level(obj, config, multires)
-                if multires.total_levels>level:
-                    multires.levels=level
+                level=config.repeater.choose_level(obj, config, multires[0])
+                if multires[0].total_levels>level:
+                    multires[0].levels=level
                     delete_higher()
                     
-                multires.levels=multires.total_levels
+                multires[0].levels=multires[0].total_levels
             else:
-                multires.levels=0
+                multires[0].levels=0
                 delete_higher()
-                multires.subdivision_type=config.subdivision_type
-            
+                multires[0].subdivision_type=config.subdivision_type
             
             def run_steps(lis):
                 for step in lis:
-                    if step.typ=="NAN":
-                        continue
-                    
-                    if step.typ=="SUB":
-                        bpy.ops.object.multires_subdivide(modifier=multires.name, mode=config.subdivision_type)
-                        continue
-                    
-                    def shrink(wrap_method):
-                        proj=mods.new("Shrinkwrap", "SHRINKWRAP")
-                        try:
-                            proj.show_viewport=False
-                            proj.use_positive_direction=True
-                            proj.use_negative_direction=True
-                            proj.wrap_method=wrap_method
-                            proj.target=config.targets[0].obj
-                            
-                            if step.pin_boundary:
-                                proj.invert_vertex_group=True
-                                proj.vertex_group=get_boundy()
-                            
-                            bpy.ops.object.modifier_apply(apply_as='DATA', modifier=proj.name, report=False)
-                        except Exception as e:
-                            mods.remove(proj)
-                            print(e)
-                            
-                    
-                    if step.typ=="PRO":
-                        shrink("PROJECT")
-                        continue
-                    
-                    if step.typ=="ATT":
-                        shrink("NEAREST_SURFACEPOINT")
-                        continue
-                    
-                    if step.typ=="SMO":
-                        proj=mods.new("Smooth", "SMOOTH")
-                        try:
-                            proj.show_viewport=False
-                            proj.factor=step.smo_strength
-                            proj.iterations=step.smo_iter
-                            
-                            if step.pin_boundary:
-                                proj.invert_vertex_group=True
-                                proj.vertex_group=get_boundy()
-                            
-                            bpy.ops.object.modifier_apply(apply_as='DATA', modifier=proj.name, report=False)
-                        except Exception as e:
-                            mods.remove(proj)
-                            print(e)
-                        continue
-                    
-                    if step.typ=="FIX":
-                        print("SPIKE REMOVAL NOT IMPLEMENTED")
-                        continue
-                    
-                    raise Exception("Unimplemneted action: "+step.typ)
+                    run_step(step)
             
-            if multires.levels==0:
+            def run_step(step):
+                
+                if step.typ=="NAN":
+                    return
+                
+                if step.typ=="SUB":
+                    bpy.ops.object.multires_subdivide(modifier=multires[0].name, mode=config.subdivision_type)
+                    return
+                
+                def shrink(wrap_method):
+                    proj=mods.new("Shrinkwrap", "SHRINKWRAP")
+                    try:
+                        proj.show_viewport=False
+                        proj.use_positive_direction=True
+                        proj.use_negative_direction=True
+                        proj.wrap_method=wrap_method
+                        proj.target=config.targets[0].obj
+                        
+                        if step.pin_boundary:
+                            proj.invert_vertex_group=True
+                            proj.vertex_group=get_boundy()
+                        
+                        apply_modifier(proj.name)
+                    except Exception as e:
+                        mods.remove(proj)
+                        print(e)
+                        
+                
+                if step.typ=="PRO":
+                    shrink("PROJECT")
+                    return
+                
+                if step.typ=="ATT":
+                    shrink("NEAREST_SURFACEPOINT")
+                    return
+                
+                def smooth_mod(o, vertex_group, invert):
+                    mods=o.modifiers
+                    proj=mods.new("Smooth", "SMOOTH")
+                    try:
+                        proj.show_viewport=False
+                        proj.factor=step.smo_strength
+                        proj.iterations=step.smo_iter
+                        
+                        if vertex_group!=None:
+                            proj.invert_vertex_group=invert
+                            proj.vertex_group=vertex_group
+                        
+                        apply_modifier(proj.name)
+                    except Exception as e:
+                        mods.remove(proj)
+                        print(e)
+                
+                if step.typ=="SMO":
+                    smooth_mod(obj, get_boundy() if step.pin_boundary else None, True)
+                    return
+                
+                if step.typ=="FIX":
+                    from . import spike_removal
+                    
+                    mesh=utils.get_evaluated_mesh(obj)
+                    
+                    spike_weight=spike_removal.analyse_mesh(mesh, step.fix_locality, step.fix_tolerance)
+                    
+                    if len(spike_weight[0])==0:
+                        return
+                    
+                    old_levels=multires[0].total_levels
+                    
+                    copy_obj=obj.copy()
+                    copy_obj.data = obj.data.copy()
+                    
+                    obj.users_collection[0].objects.link(copy_obj)
+                    
+                    bpy.ops.object.select_all(action='DESELECT')
+                    
+                    
+                    copy_obj.select_set(True)
+                    bpy.context.view_layer.objects.active = copy_obj
+                    
+                    
+                    bpy.ops.object.convert(target="MESH")
+                    
+                    try:
+                        
+                        if step.fix_debug>0:
+                            mesh=copy_obj.data
+                            
+                            for i, w in zip(spike_weight[0], spike_weight[1]):
+                                co=mesh.vertices[i].co
+                                
+                                o=bpy.data.objects.new("_DEBUG", None)
+                                
+                                bpy.data.collections[0].objects.link(o)
+                                
+                                o.location=copy_obj.matrix_world@co
+                                
+                                o.scale*=w*step.fix_debug
+                                
+                                o.empty_display_type="SPHERE"
+                        
+                        group=copy_obj.vertex_groups.new(name="SPIKE_MASK")
+                        
+                        for i, w in zip(spike_weight[0], spike_weight[1]):
+                            group.add([i], w, "REPLACE")
+                        
+                        try:
+                            smooth_mod(copy_obj, group.name, False)
+                        finally:
+                            copy_obj.vertex_groups.remove(group)
+                        
+                    finally:
+                        
+                        obj.select_set(True)
+                        bpy.context.view_layer.objects.active = obj
+                        
+                        bpy.ops.object.multires_reshape(modifier=multires[0].name)
+                        
+                        bpy.data.objects.remove(copy_obj, do_unlink=True)
+                    
+                    return
+                
+                raise Exception("Unimplemneted action: "+step.typ)
+            
+            if multires[0].levels==0:
                 print("PRE")
                 run_steps(config.steps_pre)
             
             print("REPEAT")
             
-            while config.repeater.should_repeat(obj, config, multires):
+            while config.repeater.should_repeat(obj, config, multires[0]):
                 run_steps(config.steps)
             
             print("POST")
@@ -161,7 +242,7 @@ class AMR_OT_Reproject(bpy.types.Operator):
             return {"FINISHED"}
             
         except Exception as e:
-            print(e)
+            raise e
         finally:
             if vtg:
                 obj.vertex_groups.remove(vtg[0])

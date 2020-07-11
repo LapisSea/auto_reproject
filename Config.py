@@ -140,6 +140,12 @@ def display_PRO(self, layout):
 
 def display_FIX(self, layout):
     layout.prop(self,"fix_tolerance")
+    layout.prop(self,"fix_locality")
+    layout.prop(self,"fix_debug")
+    
+    lay=layout.row(align=True)
+    lay.prop(self,"smo_strength")
+    lay.prop(self,"smo_iter")
 
 step_values={
     "SMO": display_SMO,
@@ -154,7 +160,7 @@ class Step(PropertyGroup):
         ("PRO", "Project", "Project step"),
         ("ATT", "Attract", "Snap to closest point step"),
         ("SMO", "Smooth", "Smooth step"),
-        ("FIX", "Remove Spikes (SLOW)", "Smooth step"),
+        ("FIX", "Remove Spikes (SLOW)", "Remove spikes step. (use statistical edge analisys to mask and smooth points that create spikes)"),
     ], default="NAN", update=on_change_force)
     
     smo_strength: FloatProperty(default=0.5, min=0,soft_max=1, description="Strength of smoothing", name="Strength", update=on_change_force)
@@ -166,6 +172,10 @@ class Step(PropertyGroup):
     
     fix_tolerance: FloatProperty(default=0.1, subtype="FACTOR", min=0, max=1, step=0.05, description="Spike detection tolerance. (0 = the single most spiky vertex, 1 = everything is a spike)", name="Detection tolerance", update=on_change_force)
     
+    fix_locality: IntProperty(default=0, min=0, description="If greater than 0 spike detection algorythm switches to localized spike detection mode. (useful for mesh of warying topology densities) If this value is for example 3, then examined area for a vertex is similar to selecting that vertex and using \"select more\" operator 3 times.", name="Detection locality", update=on_change_force)
+    
+    fix_debug: FloatProperty(default=0,min=0, name="Spike debug scale", update=on_change_force)
+    
     def has_values(self):
         return self.typ in step_values
         
@@ -174,7 +184,7 @@ class Step(PropertyGroup):
         
 
 def get_object_polygon_count(obj):
-    return len(obj.evaluated_get(depsgraph=bpy.context.evaluated_depsgraph_get()).data.polygons)
+    return len(utils.get_evaluated_mesh(obj).polygons)
 
 class RepeatMode(PropertyGroup):
     typ: EnumProperty(items=[
