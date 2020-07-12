@@ -46,7 +46,7 @@ def compute_local_index(edge_data, vertex_index, locality):
                 index_set.add(edge_index)
                 
                 def add(new_id):
-                    if new_id!=vt_id and new_id:
+                    if new_id!=vt_id:
                         ids.append(new_id)
                 
                 lr=edge_lr[edge_index]
@@ -123,9 +123,8 @@ def generate_positive_outlier_index(data, standard_derivation_threshold):
         
         if z_score > standard_derivation_threshold:
             yield i
-    
 
-def analyse_mesh(mesh, locality, treshold):
+def analyse_mesh_local_impl(mesh, locality, treshold, process_wait):
     lock = threading.Lock()
     
     inverse_treshold=1-treshold
@@ -238,3 +237,196 @@ def analyse_mesh(mesh, locality, treshold):
     normalize(index_weight[1])
     
     return index_weight
+
+
+def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
+    import subprocess, os, io
+    
+    def gen_writer(args, output):
+        dims=-1
+        
+        for val in args:
+            if val.startswith("dim="):
+                dims=int(val[4:])
+                break
+        
+        if dims==-1:
+            raise Exception("Unknown dimensions "+str(args))
+        
+        
+        if "human" in args:
+            
+            if dims>1:
+                def vector_writer(vec):
+                    if len(vec)!=dims:
+                         raise Exception("incorrect vector size "+str(vec)) 
+                    
+                    for val in vec:
+                        output.write(str(val)+os.linesep)
+                return vector_writer
+            
+            if dims==1:
+                return lambda val: output.write(str(val)+os.linesep)
+            
+        elif "binary" in args:
+            if "BE" in args:
+                raise Exception("Big endian not supported "+str(args))
+            
+            byte_count=-1
+            for val in args:
+                if val.startswith("bytes="):
+                    byte_count=int(val[6:])
+                    break
+            
+            if byte_count==-1:
+                raise Exception("No byte count defined "+str(args))
+            
+            if byte_count!=4:
+                raise Exception("Unsupported byte count "+str(args))
+            
+            import struct
+            
+            converter=None
+            if "int" in args:
+                converter=lambda i:struct.pack('!i', i)
+            elif "float" in args:
+                converter=lambda i:struct.pack('!f', i)
+            else:
+                raise Exception("No type "+str(args))
+            
+            if dims>1:
+                def vector_writer(vec):
+                    if len(vec)!=dims:
+                         raise Exception("incorrect vector size "+str(vec)) 
+                    
+                    for val in vec:
+                        output.write(converter(val))
+                return vector_writer
+            
+            if dims==1:
+                return lambda val: output.write(converter(val))
+            
+        
+        raise Exception("Unknown args "+str(args))
+    
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    local_path='SpikeDetector/bin/x64/SpikeDetector/SpikeDetector.exe'
+    
+    human_mode=True
+    
+    proc = subprocess.Popen(local_path, encoding="utf8" if human_mode else None, stdout=subprocess.PIPE, stdin=subprocess.PIPE, shell=False)
+    try:
+        stdout = proc.stdout
+        stdin = proc.stdin
+        
+        def send(data):
+            val=str(data)+os.linesep
+            if not human_mode:
+                val=val.encode("utf8")
+            stdin.write(val)
+        
+        def read_until(delimiter):
+            word=""
+            while True:
+                if proc.poll():
+                    return word
+                
+                char = stdout.read(1)
+                if not human_mode:
+                    char=char.decode("utf8")
+                if char == delimiter:
+                    return word
+                word+=char
+                # print(word)
+        
+        
+        
+        while not proc.poll():
+            stdin.flush()
+            
+            what=read_until(" ")
+            args=[]
+            while True:
+                arg=read_until(";")
+                if arg=="":
+                    break
+                args.append(arg)
+                
+            # print(what, args)
+            
+            
+            if what=="mesh.cordinates":
+                send(len(mesh.vertices))
+                
+                writer=gen_writer(args, proc.stdin)
+                for vertex in mesh.vertices:
+                    writer(vertex.co)
+                
+                continue
+            
+            if what=="mesh.edge_index":
+                send(len(mesh.edges))
+                
+                writer=gen_writer(args, proc.stdin)
+                for edge in mesh.edges:
+                    writer(edge.vertices)
+                
+                continue
+            
+            if what=="locality":
+                send(locality)
+                continue
+            
+            if what=="standard_derivation_treshold":
+                send(1+(1-treshold)*5)
+                continue
+            
+            if what=="log":
+                print("Worker:",args[0])
+                continue
+            
+            if what=="report_got":
+                send(1 if len(mesh.vertices)>50000 else 0)
+                continue
+            
+            if what=="human_mode":
+                send(1 if human_mode else 0)
+                continue
+            
+            if what=="error":
+                raise Exception(args[0])
+            
+            if what=="rest":
+                print("waiting for results...")
+                process_wait(True)
+                continue
+            
+            if what=="feed-results":
+                process_wait(False)
+                
+                size=int(args[0])
+                index, weights=[0]*size, [0.0]*size
+                
+                for i in range(size):
+                    index[i]=int(read_until(";"))
+                    weights[i]=float(read_until(";"))
+                
+                return (index, weights)
+            
+            # print("Unknown request", what, args)
+            
+            raise Exception("Unknown request", what, args)
+        
+        
+    finally:
+        proc.kill()
+
+def analyse_mesh(mesh, locality, treshold,process_wait):
+    try:
+        return analyse_mesh_CPP_impl(mesh, locality, treshold,process_wait)
+    except Exception as e:
+        print(e)
+        import traceback
+        traceback.print_exc()
+        
+        return analyse_mesh_local_impl(mesh, locality, treshold,process_wait)

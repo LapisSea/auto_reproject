@@ -75,7 +75,7 @@ class AMR_OT_Reproject(bpy.types.Operator):
                 multires[0]=mods.new("Multires", "MULTIRES")
             
             def apply_modifier(name):
-                bpy.ops.object.modifier_apply(apply_as='DATA', modifier=name, report=False)
+                bpy.ops.object.modifier_apply(modifier=name, report=True)
             
             def delete_higher():
                 bpy.ops.object.multires_higher_levels_delete(modifier=multires[0].name)
@@ -168,7 +168,10 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     
                     mesh=utils.get_evaluated_mesh(obj)
                     
-                    spike_weight=spike_removal.analyse_mesh(mesh, step.fix_locality, step.fix_tolerance)
+                    def rest(resting):
+                        multires[0].show_viewport=not resting
+                    
+                    spike_weight=spike_removal.analyse_mesh(mesh, step.fix_locality, step.fix_tolerance, rest)
                     
                     if len(spike_weight[0])==0:
                         return
