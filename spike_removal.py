@@ -411,6 +411,7 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
                     index[i]=int(read_until(";"))
                     weights[i]=float(read_until(";"))
                 
+                print("Got", size,"results")
                 return (index, weights)
             
             # print("Unknown request", what, args)
@@ -419,6 +420,7 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
         
         
     finally:
+        time.sleep(1)
         proc.kill()
 
 def analyse_mesh(mesh, locality, treshold,process_wait):

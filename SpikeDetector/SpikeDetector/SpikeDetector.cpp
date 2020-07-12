@@ -11,22 +11,6 @@
 
 using namespace std;
 
-const int parallelism = thread::hardware_concurrency();
-
-int locality;
-float standard_derivation_treshold;
-
-int co_size;
-float(*co_data)[3];
-
-int edges_size;
-int(*edges_data)[2];
-
-struct WeightedIndex {
-	int index;
-	float weight;
-};
-
 void single_command(string name, string value) {
 	cout << name << " " << value << ";;";
 }
@@ -41,6 +25,57 @@ void error(string message) {
 void simple_command(string message) {
 	cout << message << " ;";
 }
+
+const int parallelism = thread::hardware_concurrency();
+
+//#define FOR_LOOP(varname, end, code, ...) for(int varname=0;varname<end;varname++)code
+#define FOR_LOOP(varname, end, code, ...) threadedLoop(end, [__VA_ARGS__](int varname)->void code);
+
+
+void threadedLoop(int data_size, std::function<void(int)> runner) {
+
+	std::vector<std::thread> threads;
+	const int grainsize = data_size / parallelism;
+
+	int trail = 0;
+	for (int i = 0; i < parallelism; i++)
+	{
+		int start = trail;
+		int end = i + 1 == parallelism ? data_size : trail + grainsize;
+		trail = end;
+
+		threads.push_back(std::thread([runner, start, end]()->void {
+			for (int j = start; j < end; j++)
+			{
+				runner(j);
+			}
+			}));
+	}
+
+	for (auto&& i : threads) {
+		i.join();
+	}
+}
+
+int locality;
+float standard_derivation_treshold;
+
+int co_size;
+float(*co_data)[3];
+
+int edges_size;
+int(*edges_data)[2];
+
+struct WeightedIndex {
+	int index;
+	float weight;
+
+	WeightedIndex(int index, float weight) {
+		this->index = index;
+		this->weight = weight;
+	}
+};
+
 
 
 void vec3_sub(float dest[3], float left[3], float right[3]) {
@@ -73,23 +108,24 @@ vector<int>* compute_vertex_to_edge_relations() {
 }
 
 float* compute_edge_lengths() {
-	float length_vec[3];
 
 	float* edge_lengths = new float[edges_size];
 
-	for (int i = 0; i < edges_size; i++)
-	{
+	FOR_LOOP(i, edges_size, {
 		auto edge = edges_data[i];
 		auto co1 = co_data[edge[0]];
 		auto co2 = co_data[edge[1]];
 
+		float length_vec[3];
 		vec3_sub(length_vec, co1, co2);
 
 		edge_lengths[i] = vec3_len(length_vec);
 
-	}
+		},
+		edge_lengths)
 
-	return edge_lengths;
+
+		return edge_lengths;
 }
 
 float* compute_vertex_avarage_lengths(vector<int>* vertex_to_edge) {
@@ -98,7 +134,7 @@ float* compute_vertex_avarage_lengths(vector<int>* vertex_to_edge) {
 
 	float* lengths = new float[co_size];
 
-	for (int i = 0; i < co_size; i++) {
+	FOR_LOOP(i, co_size, {
 		vector<int> index = vertex_to_edge[i];
 		float sum = 0;
 		for each (auto id in index)
@@ -107,10 +143,12 @@ float* compute_vertex_avarage_lengths(vector<int>* vertex_to_edge) {
 		}
 		lengths[i] = sum;
 
-	}
-	delete[] edge_lengths;
+		},
+		vertex_to_edge, lengths, edge_lengths)
 
-	return lengths;
+		delete[] edge_lengths;
+
+		return lengths;
 }
 
 vector<int>* compute_local_index(int vertex_index, vector<int>* vertex_to_edge) {
@@ -119,9 +157,8 @@ vector<int>* compute_local_index(int vertex_index, vector<int>* vertex_to_edge) 
 
 	local_index.insert(vertex_index);
 
-	vector<int> new_index;
 	for (int _i = 0; _i < locality; _i++) {
-
+		vector<int> new_index;
 		for each (int existing_vt in local_index)
 		{
 			for each (int edge_id in vertex_to_edge[existing_vt])
@@ -154,40 +191,34 @@ vector<int>* compute_local_index(int vertex_index, vector<int>* vertex_to_edge) 
 	return index;
 }
 
-float calculateSD(float data[])
+float calculateSD(float data[], int count, double mean)
 {
-	float sum = 0.0, mean, standardDeviation = 0.0;
+	double standardDeviation = 0.0;
 
-	int i;
-
-	for (i = 0; i < 10; ++i) {
-		sum += data[i];
-	}
-
-	mean = sum / 10;
-
-	for (i = 0; i < 10; ++i)
+	for (int i = 0; i < count; ++i) {
 		standardDeviation += pow(data[i] - mean, 2);
-
-	return sqrt(standardDeviation / 10);
+	}
+	return sqrt(standardDeviation / count);
 }
 
-void push_dataset_filtered_index(float data[], int data_size, std::function<int(int)> index_unmapper, std::function<void(int)> consumer) {
-	float sd = calculateSD(data);
-	if (sd < 0.000001) {
-		return;
-	}
-
+void push_dataset_filtered_index(float data[], int data_size, std::function<int(int)> index_unmapper, std::function<void(WeightedIndex)> consumer) {
 	double sum = 0;
 	for (int i = 0; i < data_size; i++) {
 		sum += data[i];
 	}
 	double mean = sum / data_size;
 
+	float sd = calculateSD(data, data_size, mean);
+	if (sd < 0.000001) {
+		return;
+	}
+
 	for (int i = 0; i < data_size; i++) {
+		float val = data[i];
 		double zscore = (data[i] - mean) / sd;
 		if (zscore > standard_derivation_treshold) {
-			consumer(index_unmapper(i));
+			int global_index = index_unmapper(i);
+			consumer(WeightedIndex(global_index, val));
 		}
 	}
 }
@@ -202,19 +233,19 @@ void process() {
 
 	log("Computing standard derivation");
 
-	vector<int>* result_index(new vector<int>);
+	vector<WeightedIndex>* result_index(new vector<WeightedIndex>);
 
 	if (locality == 0) {
 		push_dataset_filtered_index(
 			global_dataset,
 			co_size,
-			[](int i)->int {return i; },
-			[result_index](int i)->void {
+			[](int local_i)->int {return local_i; },
+			[result_index](WeightedIndex i)->void {
 				result_index->push_back(i);
 			});
 	}
 	else {
-		for (int vertex_index = 0; vertex_index < co_size; vertex_index++) {
+		FOR_LOOP(vertex_index, co_size, {
 			auto local_index = compute_local_index(vertex_index, vertex_to_edge);
 			auto index_size = local_index->size();
 
@@ -224,37 +255,35 @@ void process() {
 				local_dataset[i] = global_dataset[index];
 			}
 
+
 			push_dataset_filtered_index(
 				local_dataset,
 				index_size,
-				[local_index](int i)->int {
-					return (*local_index)[i];
+				[local_index](int local_i)->int {
+					return (*local_index)[local_i];
 				},
-				[result_index, vertex_index](int i)->void {
-					if (i == vertex_index) {
-						result_index->push_back(i);
+				[result_index, vertex_index](WeightedIndex entry)->void {
+					if (vertex_index == 271)log(to_string(vertex_index));
+					if (entry.index == vertex_index) {
+						result_index->push_back(entry);
 					}
 				});
 
-		}
+			},
+			vertex_to_edge, global_dataset, result_index)
 	}
 
 	delete[] vertex_to_edge;
+	delete[] global_dataset;
+	delete[] co_data;
+	delete[] edges_data;
 
 	int final_size = result_index->size();
-
-	float* relevant_dataset = new float[final_size];
-	for (int i = 0; i < final_size; i++)
-	{
-		relevant_dataset[i] = global_dataset[(*result_index)[i]];
-	}
-
-	delete[] global_dataset;
 
 	float max = 0;
 	for (int i = 0; i < final_size; i++)
 	{
-		float weight = relevant_dataset[i];
+		float weight = (*result_index)[i].weight;
 		if (weight > max)max = weight;
 	}
 
@@ -262,8 +291,9 @@ void process() {
 
 	for (int i = 0; i < final_size; i++)
 	{
-		cout << (*result_index)[i] << ";";
-		cout << relevant_dataset[i] / max << ";";
+		auto entry = (*result_index)[i];
+		cout << entry.index << ";";
+		cout << entry.weight / max << ";";
 	}
 }
 
