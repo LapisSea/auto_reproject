@@ -180,6 +180,15 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     
                     old_levels=multires[0].total_levels
                     
+                    # old_points=[]
+                    
+                    # if step.fix_debug>0:
+                    #     mesh=utils.get_evaluated_mesh(obj)
+                        
+                    #     for i in spike_weight[0]:
+                    #         old_points.append(mesh.vertices[i].co)
+                        
+                    
                     copy_obj=obj.copy()
                     copy_obj.data = obj.data.copy()
                     

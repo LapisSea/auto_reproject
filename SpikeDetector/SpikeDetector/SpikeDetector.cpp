@@ -1,5 +1,7 @@
 ﻿
+#include "Threading.cpp"
 #include "SpikeDetector.h"
+
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -8,7 +10,6 @@
 #include <thread>
 #include <unordered_set>
 #include <functional>
-#include "SafeQueue.cpp"
 #include <streambuf>
 #include <istream>
 #include <streambuf>
@@ -18,6 +19,7 @@
 #include <csignal>
 #include "Progress.cpp"
 #include <filesystem>
+#include <cstdio>
 
 using namespace std;
 
@@ -47,7 +49,7 @@ void simple_command(string message) {
 
 void ping_pong() {
 	print_lock.lock();
-	cout <<  "ping ;";
+	cout << "ping ;";
 	int c;
 	cin >> c;
 	print_lock.unlock();
@@ -65,47 +67,7 @@ T request_command(string message) {
 	return val;
 }
 
-const int parallelism = thread::hardware_concurrency();
 
-//#define FOR_LOOP(varname, end, code, ...) for(int varname=0;varname<end;varname++)code
-#define FOR_LOOP(varname, end, code, ...) threadedLoop(end, [__VA_ARGS__](int varname)->void code);
-
-
-void threadedLoop(int data_size, std::function<void(int)> runner) {
-
-	int thread_count = min(parallelism, data_size/200);
-	if (thread_count <= 1) {
-		for (int j = 0; j < thread_count; j++)
-		{
-			runner(j);
-		}
-	}
-
-	const int grainsize = data_size / thread_count;
-
-	std::vector<std::thread> threads;
-
-	int trail = 0;
-	for (int i = 0; i < thread_count; i++)
-	{
-		int start = trail;
-		int end = i + 1 == thread_count ? data_size : trail + grainsize;
-		trail = end;
-
-
-		threads.push_back(thread([runner, start, end]()->void {
-			for (int j = start; j < end; j++)
-			{
-				runner(j);
-			}
-			}));
-	}
-
-	for (int i = 0; i < threads.size(); i++)
-	{
-		threads[i].join();
-	}
-}
 
 int locality;
 float standard_derivation_treshold;
@@ -161,18 +123,18 @@ float* compute_edge_lengths() {
 
 	float* edge_lengths = new float[edges_size];
 
-	FOR_LOOP(i, edges_size, {
-		auto edge = edges_data[i];
-		auto co1 = co_data[edge[0]];
-		auto co2 = co_data[edge[1]];
+	threadedLoop(edges_size,
+		[edge_lengths](int i)->void {
+			auto edge = edges_data[i];
+			auto co1 = co_data[edge[0]];
+			auto co2 = co_data[edge[1]];
 
-		float length_vec[3];
-		vec3_sub(length_vec, co1, co2);
+			float length_vec[3];
+			vec3_sub(length_vec, co1, co2);
 
-		edge_lengths[i] = vec3_len(length_vec);
+			edge_lengths[i] = vec3_len(length_vec);
 
-		},
-		edge_lengths);
+		});
 
 
 	return edge_lengths;
@@ -184,17 +146,17 @@ float* compute_vertex_avarage_lengths(vector<int>* vertex_to_edge) {
 
 	float* lengths = new float[co_size];
 
-	FOR_LOOP(i, co_size, {
-		vector<int> index = vertex_to_edge[i];
-		float sum = 0;
-		for each (auto id in index)
-		{
-			sum += edge_lengths[id];
-		}
-		lengths[i] = sum;
+	threadedLoop(co_size,
+		[vertex_to_edge, lengths, edge_lengths](int i)->void {
+			vector<int> index = vertex_to_edge[i];
+			float sum = 0;
+			for each (auto id in index)
+			{
+				sum += edge_lengths[id];
+			}
+			lengths[i] = sum;
 
-		},
-		vertex_to_edge, lengths, edge_lengths);
+		});
 
 	delete[] edge_lengths;
 
@@ -288,7 +250,7 @@ void process() {
 
 	vector<WeightedIndex>* result_index(new vector<WeightedIndex>);
 
-	Progress* progress=new Progress(co_size, [](string msg)->void {
+	Progress* progress = new Progress(co_size, [](string msg)->void {
 		log_msg(msg);
 		ping_pong();
 		}, false);
@@ -303,37 +265,36 @@ void process() {
 			});
 	}
 	else {
-		FOR_LOOP(vertex_index, co_size, {
-			progress->increment();
+		threadedLoop(co_size,
+			[vertex_to_edge, global_dataset, result_index, progress](int vertex_index)->void {
+				progress->increment();
 
-			auto local_index = compute_local_index(vertex_index, vertex_to_edge);
-			auto index_size = local_index->size();
+				auto local_index = compute_local_index(vertex_index, vertex_to_edge);
+				auto index_size = local_index->size();
 
-			float* local_dataset = new float[index_size];
-			for (int i = 0; i < index_size; i++) {
-				int index = (*local_index)[i];
-				local_dataset[i] = global_dataset[index];
-			}
+				float* local_dataset = new float[index_size];
+				for (int i = 0; i < index_size; i++) {
+					int index = (*local_index)[i];
+					local_dataset[i] = global_dataset[index];
+				}
 
 
-			push_dataset_filtered_index(
-				local_dataset,
-				index_size,
-				[local_index](int local_i)->int {
-					return (*local_index)[local_i];
-				},
-				[result_index, vertex_index](WeightedIndex entry)->void {
-					if (entry.index == vertex_index) {
-						result_index->push_back(entry);
-					}
-				});
+				push_dataset_filtered_index(
+					local_dataset,
+					index_size,
+					[local_index](int local_i)->int {
+						return (*local_index)[local_i];
+					},
+					[result_index, vertex_index](WeightedIndex entry)->void {
+						if (entry.index == vertex_index) {
+							result_index->push_back(entry);
+						}
+					});
 
-			delete[] local_dataset;
-			delete local_index;
+				delete[] local_dataset;
+				delete local_index;
 
-			},
-			vertex_to_edge, global_dataset, result_index, progress);
-
+			});
 	}
 
 	delete progress;
@@ -390,11 +351,11 @@ std::chrono::milliseconds ms() {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
 }
 
-string size_table[5] = {"B","KB","MB","GB","TB"};
+string size_table[5] = { "B","KB","MB","GB","TB" };
 
 string bytes_readable(float byte_count) {
-	int index=0;
-	while (byte_count >1024)
+	int index = 0;
+	while (byte_count > 1024)
 	{
 		byte_count /= 1024;
 		index++;
@@ -414,7 +375,7 @@ thread download_2d_array(T(*dest)[dimmensions], const int instance_count, string
 
 	int byte_size = instance_count * dimmensions * sizeof(T);
 
-	log_msg("downloading " + to_string(instance_count) + " " + name + " (" + bytes_readable(((float)byte_size)*2) + ")");
+	log_msg("downloading " + to_string(instance_count) + " " + name + " (" + bytes_readable(((float)byte_size) * 2) + ")");
 
 	int name_siz;
 	cin >> name_siz;
@@ -434,15 +395,17 @@ thread download_2d_array(T(*dest)[dimmensions], const int instance_count, string
 	byte* data = new byte[byte_size];
 
 
-	for (int i=0; i < byte_size; i++)
+	for (int i = 0; i < byte_size; i++)
 	{
-		data[i] =read_2_char_hex(filein);
+		data[i] = read_2_char_hex(filein);
 	}
 	filein.close();
 
-	float passed = (ms() - t1).count()/1000.0;
-	
-	log_msg(name+" transfer rate " + bytes_readable(byte_size*2/ passed) +"/s");
+	std::remove(file_name.c_str());
+
+	float passed = (float)((ms() - t1).count() / 1000.0);
+
+	log_msg(name + " transfer rate " + bytes_readable(byte_size * 2 / passed) + "/s");
 
 	return thread([byte_size, data, instance_count, dest, name]()->void {
 

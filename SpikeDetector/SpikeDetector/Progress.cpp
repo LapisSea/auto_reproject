@@ -17,6 +17,7 @@ private:
 	int total;
 	int count = 0;
 	chrono::milliseconds last_tim;
+	chrono::milliseconds tim_start = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
 	mutex sync;
 	std::function<void(string)> log;
 	bool mode;
@@ -26,15 +27,29 @@ public:
 		count++;
 		std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
 
-		float precent = (count / (float)total) * 100;
-		if (mode?(precent - last_p) > 2:(ms - last_tim) > std::chrono::milliseconds(500)) {
+		float precent_f = (count / (float)total);
+		float precent = precent_f * 100;
+		if (mode ? (precent - last_p) > 2:(ms - last_tim) > std::chrono::milliseconds(1000)) {
 			last_tim = ms;
 			last_p = precent;
 
-			std::stringstream stream;
-			stream << std::fixed << std::setprecision(2) << precent;
+			if (count > 1) {
+				auto spent_time = ms - tim_start;
+				auto total_time = spent_time / precent_f;
 
-			log(stream.str() + "%");
+				int ms = (int)(total_time - spent_time).count();
+
+				auto sec = ms / 1000;
+				ms -= sec * 1000;
+				auto min = sec / 60;
+				sec -= min * 60;
+
+				std::stringstream stream;
+				stream << std::fixed << std::setprecision(2) << precent;
+
+				log(stream.str() + "% remaining: " + to_string(min) + ":" + to_string(sec) + ":" + to_string(ms));
+			}
+
 		}
 
 		sync.unlock();
