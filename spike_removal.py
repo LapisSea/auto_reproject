@@ -241,7 +241,7 @@ def analyse_mesh_local_impl(mesh, locality, treshold, process_wait):
     return index_weight
 
 
-def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
+def analyse_mesh_CPP_impl(mesh, locality, treshold, min_length, process_wait):
     import subprocess, os, io
     build="x64"
     
@@ -252,6 +252,7 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
     
     proc = subprocess.Popen(join(os.path.dirname(os.path.realpath(__file__)),local_path), encoding="utf8", stdout=subprocess.PIPE, stdin=subprocess.PIPE,stderr=subprocess.STDOUT, shell=False)
     
+    chunk_size=1024
     
     folder=tempfile.TemporaryDirectory()
     tmp_path=folder.name
@@ -284,19 +285,83 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
                     return word
                 word+=char
         
-        def write_binary(writer):
+        def signal_file(fil):
+            send_message(len(fil))
+            send_message(fil)
+            
+        def make_file(writer):
             fil=tmp_file()
             
-            with open(fil, 'w+',encoding="utf8") as f:
+            with open(fil, 'w+',encoding="utf8",buffering=chunk_size*2) as f:
                 
                 def write_chunk(data):
                     f.write(data.hex())
                 
                 writer(write_chunk)
             
-            send_message(len(fil))
-            send_message(fil)
+            return fil
+        
+        def write_co():
+            def writer(send_chunk):
+                verts=mesh.vertices
+                
+                siz=len(verts)
+                pos=0
+                while pos<siz:
+                    f=pos
+                    t=min(siz, pos+chunk_size)
+                    pos=t
+                    
+                    chunk=[]
+                    for i in range(f,t):
+                        co=verts[i].co
+                        chunk.append(co[0])
+                        chunk.append(co[1])
+                        chunk.append(co[2])
+                    
+                    send_chunk(array('f', chunk).tobytes())
             
+            return make_file(writer)
+        
+        def write_ed():
+            def writer(send_chunk):
+                edges=mesh.edges
+                
+                siz=len(edges)
+                pos=0
+                while pos<siz:
+                    f=pos
+                    t=min(siz, pos+chunk_size)
+                    pos=t
+                    
+                    chunk=[]
+                    for i in range(f,t):
+                        co=edges[i].vertices
+                        chunk.append(co[0])
+                        chunk.append(co[1])
+                    
+                    send_chunk(array('i', chunk).tobytes())
+            
+            return make_file(writer)
+        
+        co_fil=[]
+        ed_fil=[]
+        
+        def write_fils():
+            ed_fil.append(write_ed())
+            co_fil.append(write_co())
+        threading.Thread(target=write_fils).start()
+        
+        # threading.Thread(target=lambda: ed_fil.append(write_ed())).start()
+        # threading.Thread(target=lambda: co_fil.append(write_co())).start()
+        
+        def wait_n_get(file):
+            if not file:
+                print("Waiting for file...")
+                while not file:
+                    time.sleep(0.02)
+                
+            return file[0]
         
         
         while not proc.poll():
@@ -312,7 +377,6 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
                     break
                 args.append(arg)
             
-            chunk_size=1024
             
             if what=="mesh.cordinates.size":
                 send_message(len(mesh.vertices))
@@ -323,53 +387,18 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
                 continue
             
             if what=="mesh.cordinates":
-                def writer(send_chunk):
-                    verts=mesh.vertices
-                    
-                    siz=len(verts)
-                    pos=0
-                    while pos<siz:
-                        f=pos
-                        t=min(siz, pos+chunk_size)
-                        pos=t
-                        
-                        chunk=[]
-                        for i in range(f,t):
-                            co=verts[i].co
-                            chunk.append(co[0])
-                            chunk.append(co[1])
-                            chunk.append(co[2])
-                        
-                        send_chunk(array('f', chunk).tobytes())
-                
-                write_binary(writer)
-                
+                signal_file(wait_n_get(co_fil))
                 continue
             
             if what=="mesh.edge_index":
-                def writer(send_chunk):
-                    edges=mesh.edges
-                    
-                    siz=len(edges)
-                    pos=0
-                    while pos<siz:
-                        f=pos
-                        t=min(siz, pos+chunk_size)
-                        pos=t
-                        
-                        chunk=[]
-                        for i in range(f,t):
-                            co=edges[i].vertices
-                            chunk.append(co[0])
-                            chunk.append(co[1])
-                        
-                        send_chunk(array('i', chunk).tobytes())
-                
-                write_binary(writer)
+                signal_file(wait_n_get(ed_fil))
                 continue
             
             if what=="locality":
                 send_message(locality)
+                continue
+            if what=="min_length":
+                send_message(min_length)
                 continue
             
             if what=="standard_derivation_treshold":
@@ -419,12 +448,12 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
     finally:
         proc.kill()
 
-def analyse_mesh(mesh, locality, treshold,process_wait):
+def analyse_mesh(mesh, locality, treshold, min_length, process_wait):
     try:
-        return analyse_mesh_CPP_impl(mesh, locality, treshold,process_wait)
+        return analyse_mesh_CPP_impl(mesh, locality, treshold, min_length, process_wait)
     except Exception as e:
         import traceback
         traceback.print_exc()
         
         return ([],[])
-        # return analyse_mesh_local_impl(mesh, locality, treshold,process_wait)
+        # return analyse_mesh_local_impl(mesh, locality, treshold, min_length, process_wait)

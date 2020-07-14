@@ -171,7 +171,7 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     def rest(resting):
                         multires[0].show_viewport=not resting
                     
-                    spike_weight=spike_removal.analyse_mesh(mesh, step.fix_locality, step.fix_tolerance, rest)
+                    spike_weight=spike_removal.analyse_mesh(mesh, step.fix_locality, step.fix_tolerance, step.fix_min_len, rest)
                     
                     if len(spike_weight[0])==0:
                         return

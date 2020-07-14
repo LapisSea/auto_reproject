@@ -70,6 +70,7 @@ T request_command(string message) {
 
 
 int locality;
+float min_length;
 float standard_derivation_treshold;
 
 int co_size;
@@ -269,6 +270,10 @@ void process() {
 			[vertex_to_edge, global_dataset, result_index, progress](int vertex_index)->void {
 				progress->increment();
 
+				if (min_length > 0.000001) {
+					if (global_dataset[vertex_index] < min_length)return;
+				}
+
 				auto local_index = compute_local_index(vertex_index, vertex_to_edge);
 				auto index_size = local_index->size();
 
@@ -443,11 +448,13 @@ int main()
 
 		report_got = request_command<int>("report_got");
 
-		auto th1 = download_edges();
-		auto th2 = download_cords();
 
 		standard_derivation_treshold = request_command<float>("standard_derivation_treshold");
 		locality = request_command<int>("locality");
+		min_length = request_command<float>("min_length");
+
+		auto th1 = download_edges();
+		auto th2 = download_cords();
 
 		simple_command("rest");
 		ping_pong();

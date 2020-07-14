@@ -141,7 +141,10 @@ def display_PRO(self, layout):
 def display_FIX(self, layout):
     layout.prop(self,"fix_tolerance")
     layout.prop(self,"fix_locality")
+    if self.fix_locality>0:
+        layout.prop(self,"fix_min_len")
     layout.prop(self,"fix_debug")
+    
     
     layout.label(text="Spike smoothing:")
     lay=layout.row(align=True)
@@ -176,6 +179,8 @@ class Step(PropertyGroup):
     fix_locality: IntProperty(default=0, min=0, description="If greater than 0 spike detection algorythm switches to localized spike detection mode. (useful for mesh of warying topology densities) If this value is for example 3, then examined area for a vertex is similar to selecting that vertex and using \"select more\" operator 3 times.", name="Detection locality", update=on_change_force)
     
     fix_debug: FloatProperty(default=0,min=0, name="Spike debug scale", update=on_change_force)
+    
+    fix_min_len: FloatProperty(default=0,min=0, step=0.01, unit="LENGTH", name="Minimum edge length",description="This value represents the minimum edge length for being examed as a potential spike. (WARNING: small spikes may get ignored!)", update=on_change_force)
     
     def has_values(self):
         return self.typ in step_values
