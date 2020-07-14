@@ -5,6 +5,8 @@ from . import utils
 import numpy as np
 import threading
 import time
+from array import array
+import tempfile
 
 def normalize(dataset):
     data_size=len(dataset)
@@ -241,156 +243,153 @@ def analyse_mesh_local_impl(mesh, locality, treshold, process_wait):
 
 def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
     import subprocess, os, io
+    build="x64"
     
-    def gen_writer(args, output):
-        dims=-1
-        
-        for val in args:
-            if val.startswith("dim="):
-                dims=int(val[4:])
-                break
-        
-        if dims==-1:
-            raise Exception("Unknown dimensions "+str(args))
-        
-        
-        if "human" in args:
-            
-            if dims>1:
-                def vector_writer(vec):
-                    if len(vec)!=dims:
-                         raise Exception("incorrect vector size "+str(vec)) 
-                    
-                    for val in vec:
-                        output.write(str(val)+os.linesep)
-                return vector_writer
-            
-            if dims==1:
-                return lambda val: output.write(str(val)+os.linesep)
-            
-        elif "binary" in args:
-            if "BE" in args:
-                raise Exception("Big endian not supported "+str(args))
-            
-            byte_count=-1
-            for val in args:
-                if val.startswith("bytes="):
-                    byte_count=int(val[6:])
-                    break
-            
-            if byte_count==-1:
-                raise Exception("No byte count defined "+str(args))
-            
-            if byte_count!=4:
-                raise Exception("Unsupported byte count "+str(args))
-            
-            import struct
-            
-            converter=None
-            if "int" in args:
-                converter=lambda i:struct.pack('!i', i)
-            elif "float" in args:
-                converter=lambda i:struct.pack('!f', i)
-            else:
-                raise Exception("No type "+str(args))
-            
-            if dims>1:
-                def vector_writer(vec):
-                    if len(vec)!=dims:
-                         raise Exception("incorrect vector size "+str(vec)) 
-                    
-                    for val in vec:
-                        output.write(converter(val))
-                return vector_writer
-            
-            if dims==1:
-                return lambda val: output.write(converter(val))
-            
-        
-        raise Exception("Unknown args "+str(args))
+    local_path='SpikeDetector/bin/'+build+'/SpikeDetector/SpikeDetector.exe'
     
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    local_path='SpikeDetector/bin/x64/SpikeDetector/SpikeDetector.exe'
+    from os import listdir
+    from os.path import join
     
-    human_mode=True
+    proc = subprocess.Popen(join(os.path.dirname(os.path.realpath(__file__)),local_path), encoding="utf8", stdout=subprocess.PIPE, stdin=subprocess.PIPE,stderr=subprocess.STDOUT, shell=False)
     
-    proc = subprocess.Popen(local_path, encoding="utf8" if human_mode else None, stdout=subprocess.PIPE, stdin=subprocess.PIPE, shell=False)
+    
+    folder=tempfile.TemporaryDirectory()
+    tmp_path=folder.name
+    
+    def tmp_file():
+        return join(tmp_path,str(sum(1 for f in listdir(tmp_path))))
+    
     try:
         stdout = proc.stdout
         stdin = proc.stdin
         
-        def send(data):
+        def send_message(data):
+            # print("sent message:",data)
             val=str(data)+os.linesep
-            if not human_mode:
-                val=val.encode("utf8")
             stdin.write(val)
+            stdin.flush()
+        
+        def send_raw(data):
+            stdin.write(data)
         
         def read_until(delimiter):
             word=""
             while True:
                 if proc.poll():
-                    return word
+                    raise Exception("Worker died unexpectedly, code: "+str(proc.returncode))
                 
                 char = stdout.read(1)
-                if not human_mode:
-                    char=char.decode("utf8")
                 if char == delimiter:
+                    # print("read",'"'+word+delimiter+'"')
                     return word
                 word+=char
-                # print(word)
         
+        def write_binary(writer):
+            fil=tmp_file()
+            
+            with open(fil, 'w+',encoding="utf8") as f:
+                
+                def write_chunk(data):
+                    f.write(data.hex())
+                
+                writer(write_chunk)
+            
+            send_message(len(fil))
+            send_message(fil)
+            
         
         
         while not proc.poll():
             stdin.flush()
+            stdout.flush()
             
             what=read_until(" ")
             args=[]
             while True:
                 arg=read_until(";")
+                # safe=arg.strip()
                 if arg=="":
                     break
                 args.append(arg)
-                
-            # print(what, args)
             
+            chunk_size=1024
+            
+            if what=="mesh.cordinates.size":
+                send_message(len(mesh.vertices))
+                continue
+            
+            if what=="mesh.edge_index.size":
+                send_message(len(mesh.edges))
+                continue
             
             if what=="mesh.cordinates":
-                send(len(mesh.vertices))
+                def writer(send_chunk):
+                    verts=mesh.vertices
+                    
+                    siz=len(verts)
+                    pos=0
+                    while pos<siz:
+                        f=pos
+                        t=min(siz, pos+chunk_size)
+                        pos=t
+                        
+                        chunk=[]
+                        for i in range(f,t):
+                            co=verts[i].co
+                            chunk.append(co[0])
+                            chunk.append(co[1])
+                            chunk.append(co[2])
+                        
+                        send_chunk(array('f', chunk).tobytes())
                 
-                writer=gen_writer(args, proc.stdin)
-                for vertex in mesh.vertices:
-                    writer(vertex.co)
+                write_binary(writer)
                 
                 continue
             
             if what=="mesh.edge_index":
-                send(len(mesh.edges))
+                def writer(send_chunk):
+                    edges=mesh.edges
+                    
+                    siz=len(edges)
+                    pos=0
+                    while pos<siz:
+                        f=pos
+                        t=min(siz, pos+chunk_size)
+                        pos=t
+                        
+                        chunk=[]
+                        for i in range(f,t):
+                            co=edges[i].vertices
+                            chunk.append(co[0])
+                            chunk.append(co[1])
+                        
+                        send_chunk(array('i', chunk).tobytes())
                 
-                writer=gen_writer(args, proc.stdin)
-                for edge in mesh.edges:
-                    writer(edge.vertices)
-                
+                write_binary(writer)
                 continue
             
             if what=="locality":
-                send(locality)
+                send_message(locality)
                 continue
             
             if what=="standard_derivation_treshold":
-                send(1+(1-treshold)*5)
+                send_message(1+(1-treshold)*5)
                 continue
             
             if what=="log":
                 print("Worker:",args[0])
                 continue
             
+            if what=="ping":
+                send_message(0)
+                continue
+            
             if what=="report_got":
-                send(1 if len(mesh.vertices)>50000 else 0)
+                send_message(1 if len(mesh.vertices)>50000 else 0)
                 continue
             
             if what=="human_mode":
-                send(1 if human_mode else 0)
+                send_message(1)
                 continue
             
             if what=="error":
@@ -414,21 +413,18 @@ def analyse_mesh_CPP_impl(mesh, locality, treshold, process_wait):
                 print("Got", size,"results")
                 return (index, weights)
             
-            # print("Unknown request", what, args)
-            
             raise Exception("Unknown request", what, args)
         
         
     finally:
-        time.sleep(1)
         proc.kill()
 
 def analyse_mesh(mesh, locality, treshold,process_wait):
     try:
         return analyse_mesh_CPP_impl(mesh, locality, treshold,process_wait)
     except Exception as e:
-        print(e)
         import traceback
         traceback.print_exc()
         
-        return analyse_mesh_local_impl(mesh, locality, treshold,process_wait)
+        return ([],[])
+        # return analyse_mesh_local_impl(mesh, locality, treshold,process_wait)

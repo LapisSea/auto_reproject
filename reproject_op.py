@@ -249,8 +249,6 @@ class AMR_OT_Reproject(bpy.types.Operator):
             
             return {"FINISHED"}
             
-        except Exception as e:
-            raise e
         finally:
             if vtg:
                 obj.vertex_groups.remove(vtg[0])
