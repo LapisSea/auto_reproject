@@ -229,7 +229,9 @@ class AMR_OT_Reproject(bpy.types.Operator):
                         
                         bpy.ops.object.multires_reshape(modifier=multires[0].name)
                         
-                        bpy.data.objects.remove(copy_obj, do_unlink=True)
+                        d=copy_obj.data
+                        bpy.data.objects.remove(copy_obj)
+                        bpy.data.meshes.remove(d)
                     
                     return
                 
