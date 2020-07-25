@@ -284,8 +284,13 @@ class AMR_OT_Reproject(bpy.types.Operator):
             steps=filtered(config.steps)
             steps_post=filtered(config.steps_post)
             
-            total=max(1, len(steps_pre)+len(steps)*max(0, prediced_levels-multires[0].levels)+len(steps_post))
+            total=max(1, len(steps_pre)+len(steps)*prediced_levels+len(steps_post))
             count=[0]
+            
+            if multires[0].levels==0:
+                count[0]+=len(steps_pre)
+            
+            count[0]+=len(steps)*multires[0].levels
             
             def run_steps(lis, start):
                 for i, step in enumerate(lis):
