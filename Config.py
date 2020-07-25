@@ -165,6 +165,7 @@ class Step(PropertyGroup):
         ("ATT", "Attract", "Snap to closest point step"),
         ("SMO", "Smooth", "Smooth step"),
         ("FIX", "Remove Spikes (SLOW)", "Remove spikes step. (use statistical edge analisys to mask and smooth points that create spikes)"),
+        ("APB", "Apply Base", "Applies shape to base mesh"),
     ], default="NAN", update=on_change_force)
     
     smo_strength: FloatProperty(default=0.5, min=0,soft_max=1, description="Strength of smoothing", name="Strength", update=on_change_force)
@@ -236,6 +237,10 @@ class RepeatMode(PropertyGroup):
             
             count=get_object_polygon_count(obj)
             
+            while count<target:
+                count*=4
+                levels+=1
+            
             while count/4>=target and levels>0:
                 count/=4
                 levels-=1
@@ -270,3 +275,7 @@ class Config(PropertyGroup):
     force_change: BoolProperty(default=False)
     
     repeater: PointerProperty(type=RepeatMode)
+    
+    progress: IntProperty(soft_min=0, max=100, subtype="PERCENTAGE", name="Progress")
+    run_pos: IntProperty(default=-1)
+

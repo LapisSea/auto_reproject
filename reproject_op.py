@@ -3,7 +3,12 @@ from . import utils
 from .Config import (scan_step_problems,scan_preserve_problems)
 from .import_properties import *
 
-
+def redraw():
+    op=bpy.ops.wm.redraw_timer
+    if op.poll():
+        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+    else:
+        print("da fuk")
 
 class AMR_OT_Reproject(bpy.types.Operator):
     bl_idname = "amr.reproject"
@@ -21,15 +26,32 @@ class AMR_OT_Reproject(bpy.types.Operator):
 
     def execute(self, context):
         
+        change_ar=[False]
+        
+        def change(ch):
+            ch=bool(ch)
+            if not ch:
+                return ch
+            
+            if change_ar[0]:
+                return ch
+            
+            change_ar[0]=True
+            print("Projecting...")
+            return ch
         
         obj, config = utils.get_context_common(context)
+        config.run_pos=-1
+        
+        def progress(p):
+            config.progress=p*100
         
         for o in bpy.data.objects:
             if o.type!="EMPTY" or not o.name.startswith("_DEBUG"):
                 continue
+            change(True)
             bpy.data.objects.remove(o)
         
-        print("Projecting...")
         
         vtg=[]
         
@@ -61,7 +83,9 @@ class AMR_OT_Reproject(bpy.types.Operator):
             return get_boundy()
         
         try:
-            bpy.ops.object.mode_set(mode='OBJECT')
+            if bpy.context.object.mode!="OBJECT":
+                bpy.ops.object.mode_set(mode='OBJECT')
+                change(True)
             
             mods=obj.modifiers
             
@@ -73,12 +97,16 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     break
             if multires[0]==None:
                 multires[0]=mods.new("Multires", "MULTIRES")
+                redraw()
             
             def apply_modifier(name):
                 bpy.ops.object.modifier_apply(modifier=name, report=True)
             
             def delete_higher():
+                change(True)
+                print(multires[0].total_levels,"downsampled to", multires[0].levels)
                 bpy.ops.object.multires_higher_levels_delete(modifier=multires[0].name)
+                redraw()
             
             
             disable_preserve_old=config.force_change
@@ -87,10 +115,11 @@ class AMR_OT_Reproject(bpy.types.Operator):
             
             force=disable_preserve_old or len(scan_preserve_problems(config))>0
             
+            prediced_levels=config.repeater.choose_level(obj, config, multires[0])
+            
             if config.preserve_old and not force:
-                level=config.repeater.choose_level(obj, config, multires[0])
-                if multires[0].total_levels>level:
-                    multires[0].levels=level
+                if multires[0].total_levels>prediced_levels:
+                    multires[0].levels=prediced_levels
                     delete_higher()
                     
                 multires[0].levels=multires[0].total_levels
@@ -98,10 +127,7 @@ class AMR_OT_Reproject(bpy.types.Operator):
                 multires[0].levels=0
                 delete_higher()
                 multires[0].subdivision_type=config.subdivision_type
-            
-            def run_steps(lis):
-                for step in lis:
-                    run_step(step)
+
             
             def run_step(step):
                 
@@ -110,6 +136,10 @@ class AMR_OT_Reproject(bpy.types.Operator):
                 
                 if step.typ=="SUB":
                     bpy.ops.object.multires_subdivide(modifier=multires[0].name, mode=config.subdivision_type)
+                    return
+                
+                if step.typ=="APB":
+                    bpy.ops.object.multires_base_apply(modifier=multires[0].name)
                     return
                 
                 def shrink(wrap_method):
@@ -246,20 +276,51 @@ class AMR_OT_Reproject(bpy.types.Operator):
                 
                 raise Exception("Unimplemneted action: "+step.typ)
             
-            if multires[0].levels==0:
+            
+            def filtered(lis):
+                return [e for e in lis if e.typ!="NAN"]
+                
+            steps_pre=filtered(config.steps_pre)
+            steps=filtered(config.steps)
+            steps_post=filtered(config.steps_post)
+            
+            total=max(1, len(steps_pre)+len(steps)*max(0, prediced_levels-multires[0].levels)+len(steps_post))
+            count=[0]
+            
+            def run_steps(lis, start):
+                for i, step in enumerate(lis):
+                    count[0]+=1
+                    progress(count[0]/total)
+                    run_step(step)
+                    config.run_pos=start+i+1
+                    redraw()
+            
+            
+            
+            if multires[0].levels==0 and change(steps_pre):
                 print("PRE")
-                run_steps(config.steps_pre)
+                run_steps(steps_pre, 0)
             
-            print("REPEAT")
+            if config.repeater.should_repeat(obj, config, multires[0]):
+                print("REPEAT")
+                change(steps)
+                
+                while config.repeater.should_repeat(obj, config, multires[0]):
+                    run_steps(steps, len(steps_pre))
             
-            while config.repeater.should_repeat(obj, config, multires[0]):
-                run_steps(config.steps)
+            if change(steps_post):
+                print("POST")
+                run_steps(steps_post, len(steps_pre)+len(steps))
             
-            print("POST")
-            run_steps(config.steps_post)
+            
+            if not change_ar[0]:
+                return {"CANCELLED"}
+            
+            progress(1)
             
             return {"FINISHED"}
             
         finally:
+            config.run_pos=-1
             if vtg:
                 obj.vertex_groups.remove(vtg[0])

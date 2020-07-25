@@ -53,6 +53,7 @@ class AMR_PT_Panel(bpy.types.Panel):
         if len(targets) == 1:
             b.label(text="Select target(s) to reproject from!", icon="ERROR")
         
+        pos=[0]
         
         def step_list(lis, title):
             b = layout.box()
@@ -63,13 +64,23 @@ class AMR_PT_Panel(bpy.types.Panel):
             r = b.column_flow(columns=1, align=True)
             
             for i, step in enumerate(lis):
+                current=config.run_pos==pos[0]
+                
+                pos[0]+=1
                 column = r
+                if current:
+                    column=column.column()
+                    column.alert=True
+                
+                txt="" if step.typ=="NAN" else "Step "+str(i+1)
+                
                 if step.has_values():
                     column = column.column(align=False)
-                    column.prop(step, "typ", text="Step "+str(i+1))
+                    column.prop(step, "typ", text=txt)
                     step.display_values(column)
                 else:
-                    column.prop(step, "typ", text="Step "+str(i+1))
+                    column.prop(step, "typ", text=txt)
+            
             
             return b
         
@@ -88,10 +99,17 @@ class AMR_PT_Panel(bpy.types.Panel):
             ro = layout.box()
             
             ro.prop(config, "preserve_old")
+            
             for problem in problems:
                 ro.label(text=problem, icon="ERROR")
         else:
             layout.prop(config, "preserve_old")
+        
+        col = layout.row(align=True)
+        col.prop(config, "progress")
+        col.scale_x=0.6
+        col.scale_y=0.6
+        col.enabled=False
         
         col = layout.row(align=True)
         col.prop(config, "auto_update", text="", icon="SNAP_ON" if config.auto_update else "SNAP_OFF")
