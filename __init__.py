@@ -20,11 +20,10 @@ bl_info = {
     "name": "Auto Multires Reproject",
     "author": "LapisSea",
     "description": "",
-    "blender": (2, 90, 0),
-    "version": (0, 0, 1),
-    "location": "",
-    "warning": "",
-    "category": "Generic"
+    "blender": (2, 80, 0),
+    "version": (1, 0, 0),
+    "location": "3D View -> Tools -> Reproject",
+    "category": "Sculpt"
 }
 
 auto_load.init()
