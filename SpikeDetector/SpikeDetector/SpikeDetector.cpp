@@ -465,6 +465,8 @@ int main()
 		process();
 
 		simple_command("kill");
+
+		ping_pong();
 	}
 	catch (const std::exception& e) {
 		error(e.what());

@@ -15,15 +15,19 @@ void threadedLoop(int data_size, std::function<void(int)> runner, int min_chunk 
 	const int thread_count = min(data_size / min_chunk, parallelism);
 
 	if (thread_count <= 1) {
-		for (int j = 0; j < thread_count; j++)
+
+		for (int j = 0; j < data_size; j++)
 		{
 			runner(j);
 		}
+
+		return;
 	}
 
 	const int grainsize = data_size / thread_count;
 
 	std::thread *threads=new thread[thread_count];
+
 
 	int trail = 0;
 	for (int i = 0; i < thread_count; i++)
