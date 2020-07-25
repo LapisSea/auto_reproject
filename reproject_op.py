@@ -2,6 +2,7 @@ import bpy
 from . import utils
 from .Config import (scan_step_problems,scan_preserve_problems)
 from .import_properties import *
+from . import spike_removal
 
 def redraw():
     op=bpy.ops.wm.redraw_timer
@@ -194,76 +195,77 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     if step.smo_iter==0 or step.smo_strength==0:
                         return
                     
-                    from . import spike_removal
-                    
-                    mesh=utils.get_evaluated_mesh(obj)
-                    
-                    def rest(resting):
-                        multires[0].show_viewport=not resting
-                        redraw()
-                    
-                    spike_weight=spike_removal.analyse_mesh(mesh, step.fix_locality, step.fix_tolerance, step.fix_min_len, rest)
-                    
-                    if len(spike_weight[0])==0:
-                        return
+                    for _ in range(step.fix_repeat):
                         
-                    print("Applying smoothing to detected spikes")
-                    
-                    old_levels=multires[0].total_levels
-                    
-                    copy_obj=obj.copy()
-                    copy_obj.data = obj.data.copy()
-                    
-                    obj.users_collection[0].objects.link(copy_obj)
-                    
-                    bpy.ops.object.select_all(action='DESELECT')
-                    
-                    
-                    copy_obj.select_set(True)
-                    bpy.context.view_layer.objects.active = copy_obj
-                    
-                    
-                    bpy.ops.object.convert(target="MESH")
-                    
-                    try:
+                        def rest(resting):
+                            # multires[0].show_viewport=not resting
+                            # redraw()
+                            pass
                         
-                        if step.fix_debug>0:
-                            mesh=copy_obj.data
-                            
-                            for i, w in zip(spike_weight[0], spike_weight[1]):
-                                co=mesh.vertices[i].co
-                                
-                                o=bpy.data.objects.new("_DEBUG", None)
-                                
-                                bpy.data.collections[0].objects.link(o)
-                                
-                                o.location=copy_obj.matrix_world@co
-                                
-                                o.scale*=w*step.fix_debug
-                                
-                                o.empty_display_type="SPHERE"
+                        spike_weight=spike_removal.analyse_mesh(utils.get_evaluated_mesh(obj), step.fix_locality, pow((1-step.fix_tolerance)*5, 2), step.fix_min_len, rest)
                         
-                        group=copy_obj.vertex_groups.new(name="SPIKE_MASK")
+                        if len(spike_weight[0])==0:
+                            continue
                         
-                        for i, w in zip(spike_weight[0], spike_weight[1]):
-                            group.add([i], w, "REPLACE")
+                        print("Applying smoothing to detected spikes")
+                        
+                        old_levels=multires[0].total_levels
+                        
+                        copy_obj=obj.copy()
+                        copy_obj.data = obj.data.copy()
+                        
+                        obj.users_collection[0].objects.link(copy_obj)
+                        
+                        bpy.ops.object.select_all(action='DESELECT')
+                        
+                        
+                        copy_obj.select_set(True)
+                        bpy.context.view_layer.objects.active = copy_obj
+                        
+                        
+                        bpy.ops.object.convert(target="MESH")
                         
                         try:
-                            smooth_mod(copy_obj, group.name, False)
+                            
+                            if step.fix_debug>0:
+                                mesh=copy_obj.data
+                                
+                                for i, w in zip(spike_weight[0], spike_weight[1]):
+                                    co=mesh.vertices[i].co
+                                    
+                                    o=bpy.data.objects.new("_DEBUG", None)
+                                    
+                                    bpy.data.collections[0].objects.link(o)
+                                    
+                                    o.location=copy_obj.matrix_world@co
+                                    
+                                    o.scale*=w*step.fix_debug
+                                    
+                                    o.empty_display_type="SPHERE"
+                            
+                            group=copy_obj.vertex_groups.new(name="SPIKE_MASK")
+                            
+                            for i, w in zip(spike_weight[0], spike_weight[1]):
+                                group.add([i], w, "REPLACE")
+                            
+                            try:
+                                smooth_mod(copy_obj, group.name, False)
+                            finally:
+                                copy_obj.vertex_groups.remove(group)
+                            
                         finally:
-                            copy_obj.vertex_groups.remove(group)
+                            
+                            obj.select_set(True)
+                            bpy.context.view_layer.objects.active = obj
+                            
+                            bpy.ops.object.multires_reshape(modifier=multires[0].name)
+                            
+                            d=copy_obj.data
+                            bpy.data.objects.remove(copy_obj)
+                            bpy.data.meshes.remove(d)
+                            
+                            redraw()
                         
-                    finally:
-                        
-                        obj.select_set(True)
-                        bpy.context.view_layer.objects.active = obj
-                        
-                        bpy.ops.object.multires_reshape(modifier=multires[0].name)
-                        
-                        d=copy_obj.data
-                        bpy.data.objects.remove(copy_obj)
-                        bpy.data.meshes.remove(d)
-                    
                     return
                 
                 raise Exception("Unimplemneted action: "+step.typ)

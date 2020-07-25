@@ -20,6 +20,7 @@ def update(scene=None):
         steps[0].typ="SUB"
         steps[1].typ="PRO"
     
+    
     def manage_list(lis, is_empty):
         
         if not lis:
@@ -139,6 +140,8 @@ def display_PRO(self, layout):
     layout.prop(self,"pro_distance")
 
 def display_FIX(self, layout):
+    layout.prop(self,"fix_repeat")
+    
     layout.prop(self,"fix_tolerance")
     layout.prop(self,"fix_locality")
     if self.fix_locality>0:
@@ -150,6 +153,8 @@ def display_FIX(self, layout):
     lay=layout.row(align=True)
     lay.prop(self,"smo_strength")
     lay.prop(self,"smo_iter")
+    
+    
 
 step_values={
     "SMO": display_SMO,
@@ -182,6 +187,8 @@ class Step(PropertyGroup):
     fix_debug: FloatProperty(default=0,min=0, name="Spike debug scale", update=on_change_force)
     
     fix_min_len: FloatProperty(default=0,min=0, step=0.01, unit="LENGTH", name="Minimum edge length",description="This value represents the minimum edge length for being examed as a potential spike. (WARNING: small spikes may get ignored!)", update=on_change_force)
+    
+    fix_repeat: IntProperty(default=1,min=1, name="Step Repeat", update=on_change_force)
     
     def has_values(self):
         return self.typ in step_values

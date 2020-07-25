@@ -22,6 +22,13 @@ class AMR_PT_Panel(bpy.types.Panel):
             layout.label(text="mesh to reproject to!")
             return
         
+        if not config.inited:
+            column=column.column()
+            column.alert=True
+            column.label(text="SETTINGS NOT INITED", icon="ERROR")
+            column.label(text="THIS IS A BUG", icon="ERROR")
+            
+        
         layout.label(text="Auto Reproject settings")
         
         

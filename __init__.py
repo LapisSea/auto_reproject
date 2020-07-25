@@ -23,7 +23,7 @@ bl_info = {
     "blender": (2, 80, 0),
     "version": (1, 0, 0),
     "location": "3D View -> Tools -> Reproject",
-    "category": "Sculpt"
+    "category": "Sculpting"
 }
 
 auto_load.init()
