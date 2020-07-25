@@ -200,6 +200,7 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     
                     def rest(resting):
                         multires[0].show_viewport=not resting
+                        redraw()
                     
                     spike_weight=spike_removal.analyse_mesh(mesh, step.fix_locality, step.fix_tolerance, step.fix_min_len, rest)
                     
@@ -209,15 +210,6 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     print("Applying smoothing to detected spikes")
                     
                     old_levels=multires[0].total_levels
-                    
-                    # old_points=[]
-                    
-                    # if step.fix_debug>0:
-                    #     mesh=utils.get_evaluated_mesh(obj)
-                        
-                    #     for i in spike_weight[0]:
-                    #         old_points.append(mesh.vertices[i].co)
-                        
                     
                     copy_obj=obj.copy()
                     copy_obj.data = obj.data.copy()
@@ -296,8 +288,9 @@ class AMR_OT_Reproject(bpy.types.Operator):
                 for i, step in enumerate(lis):
                     count[0]+=1
                     progress(count[0]/total)
+                    config.run_pos=start+i
+                    redraw()
                     run_step(step)
-                    config.run_pos=start+i+1
                     redraw()
             
             

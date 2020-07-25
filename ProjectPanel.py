@@ -64,15 +64,20 @@ class AMR_PT_Panel(bpy.types.Panel):
             r = b.column_flow(columns=1, align=True)
             
             for i, step in enumerate(lis):
-                current=config.run_pos==pos[0]
+                is_nan=step.typ=="NAN"
                 
-                pos[0]+=1
+                current=False
+                if not is_nan:
+                    current=config.run_pos==pos[0]
+                    
+                    pos[0]+=1
+                
                 column = r
                 if current:
                     column=column.column()
                     column.alert=True
                 
-                txt="" if step.typ=="NAN" else "Step "+str(i+1)
+                txt="" if is_nan else "Step "+str(i+1)
                 
                 if step.has_values():
                     column = column.column(align=False)
