@@ -23,7 +23,7 @@ class AMR_PT_Panel(bpy.types.Panel):
             return
         
         if not config.inited:
-            column=column.column()
+            column=layout.column()
             column.alert=True
             column.label(text="SETTINGS NOT INITED", icon="ERROR")
             column.label(text="THIS IS A BUG", icon="ERROR")
