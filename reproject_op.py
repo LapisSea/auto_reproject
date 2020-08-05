@@ -143,7 +143,7 @@ class AMR_OT_Reproject(bpy.types.Operator):
                     bpy.ops.object.multires_base_apply(modifier=multires[0].name)
                     return
                 
-                def shrink(wrap_method):
+                def shrink(wrap_method, dist=0):
                     proj=mods.new("Shrinkwrap", "SHRINKWRAP")
                     try:
                         proj.show_viewport=False
@@ -151,6 +151,9 @@ class AMR_OT_Reproject(bpy.types.Operator):
                         proj.use_negative_direction=True
                         proj.wrap_method=wrap_method
                         proj.target=config.targets[0].obj
+                        
+                        if dist>0:
+                            proj.project_limit=dist
                         
                         if step.pin_boundary:
                             proj.invert_vertex_group=True
@@ -163,7 +166,7 @@ class AMR_OT_Reproject(bpy.types.Operator):
                         
                 
                 if step.typ=="PRO":
-                    shrink("PROJECT")
+                    shrink("PROJECT", step.pro_distance)
                     return
                 
                 if step.typ=="ATT":
